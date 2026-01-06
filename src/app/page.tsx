@@ -47,7 +47,7 @@ export default function LoginPage() {
           return res.json().then((data) => {
             throw new Error(data.message || "Login failed");
           });
-        }
+        } 
         return res.json();
       })
       .then((data) => {
