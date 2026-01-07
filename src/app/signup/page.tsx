@@ -64,7 +64,6 @@ export default function SignupPage() {
       .then((data) => {
         setIsLoading(false);
         showToast(data.message);
-        console.log("Signup response:", data.message);
         setFullName("");
         setEmail("");
         setMobile("");
