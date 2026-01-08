@@ -56,8 +56,6 @@ export default function AdminListPage() {
 
         const data = await response.json();
 
-        // console.log(data.userData, "[[[]]]");
-
         // Handle different response formats
         const userList = data.userData;
 
