@@ -21,10 +21,19 @@ interface User {
   updatedAt?: string;
 }
 
+interface UserDetails extends User {
+  [key: string]: string | number | boolean | undefined; // Allow for additional fields from API
+}
+
 export default function AdminListPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [favoritedUsers, setFavoritedUsers] = useState<Set<string>>(new Set());
+  const [isFavoriting, setIsFavoriting] = useState<string | null>(null);
 
   const showToast = (
     message: string,
@@ -86,6 +95,111 @@ export default function AdminListPage() {
       });
     } catch {
       return "N/A";
+    }
+  };
+
+  const formatDateTime = (dateString?: string) => {
+    if (!dateString) return "N/A";
+    try {
+      return new Date(dateString).toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "N/A";
+    }
+  };
+
+  const handleUserClick = async (userId: string) => {
+    setIsModalOpen(true);
+    setIsLoadingDetails(true);
+    setUserDetails(null);
+
+    try {
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + `admin/user/${userId}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch user details");
+      }
+
+      const data = await response.json();
+      setUserDetails(data.userData || data.user || data);
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to load user details. Please try again.",
+        "error"
+      );
+      console.error("Error fetching user details:", error);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setUserDetails(null);
+  };
+
+  const handleFavorite = async (
+    e: React.MouseEvent,
+    userId: string,
+    userName: string
+  ) => {
+    e.stopPropagation(); // Prevent row click from firing
+
+    if (isFavoriting) return; // Prevent multiple clicks
+
+    setIsFavoriting(userId);
+
+    try {
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + "admin/favourites",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: userId }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to add to favorites");
+      }
+
+      const data = await response.json();
+
+      // Toggle favorite state
+      setFavoritedUsers((prev) => {
+        const newSet = new Set(prev);
+        if (newSet.has(userId)) {
+          newSet.delete(userId);
+        } else {
+          newSet.add(userId);
+        }
+        return newSet;
+      });
+
+      showToast(
+        data.message || `${userName} added to favorites successfully!`,
+        "success"
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to add to favorites. Please try again.",
+        "error"
+      );
+      console.error("Error adding to favorites:", error);
+    } finally {
+      setIsFavoriting(null);
     }
   };
 
@@ -307,13 +421,20 @@ export default function AdminListPage() {
                     >
                       Created
                     </th>
+                    <th
+                      scope="col"
+                      className="px-6 py-4 text-center text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300"
+                    >
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 bg-white dark:divide-zinc-800 dark:bg-zinc-900">
                   {users.map((user, index) => (
                     <tr
                       key={user.id || user._id || index}
-                      className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+                      onClick={() => handleUserClick(user.id || user._id || "")}
+                      className="cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
                     >
                       <td className="whitespace-nowrap px-6 py-4">
                         <div className="flex items-center">
@@ -355,6 +476,83 @@ export default function AdminListPage() {
                       <td className="whitespace-nowrap px-6 py-4 text-sm text-zinc-600 dark:text-zinc-400">
                         {formatDate(user.createdAt)}
                       </td>
+                      <td className="whitespace-nowrap px-6 py-4 text-center">
+                        <button
+                          onClick={(e) =>
+                            handleFavorite(
+                              e,
+                              user.id || user._id || "",
+                              user.fullName
+                            )
+                          }
+                          disabled={
+                            isFavoriting === (user.id || user._id || "")
+                          }
+                          className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors ${
+                            favoritedUsers.has(user.id || user._id || "")
+                              ? "text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                              : "text-zinc-400 hover:bg-zinc-100 hover:text-yellow-500 dark:hover:bg-zinc-800 dark:hover:text-yellow-400"
+                          } ${
+                            isFavoriting === (user.id || user._id || "")
+                              ? "opacity-50 cursor-not-allowed"
+                              : ""
+                          }`}
+                          title={
+                            favoritedUsers.has(user.id || user._id || "")
+                              ? "Remove from favorites"
+                              : "Add to favorites"
+                          }
+                        >
+                          {isFavoriting === (user.id || user._id || "") ? (
+                            <svg
+                              className="animate-spin h-5 w-5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              />
+                            </svg>
+                          ) : favoritedUsers.has(user.id || user._id || "") ? (
+                            <svg
+                              className="h-5 w-5 fill-current"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              className="h-5 w-5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -371,6 +569,280 @@ export default function AdminListPage() {
           </div>
         )}
       </div>
+
+      {/* User Details Modal */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm"
+          onClick={closeModal}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                User Details
+              </h2>
+              <button
+                onClick={closeModal}
+                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              {isLoadingDetails ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="flex flex-col items-center gap-4">
+                    <svg
+                      className="animate-spin h-8 w-8 text-blue-600 dark:text-blue-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                      Loading user details...
+                    </p>
+                  </div>
+                </div>
+              ) : userDetails ? (
+                <div className="space-y-6">
+                  {/* User Avatar and Name */}
+                  <div className="flex items-center gap-4 pb-6 border-b border-zinc-200 dark:border-zinc-800">
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                      <span className="text-xl font-semibold">
+                        {userDetails.fullName
+                          ?.split(" ")
+                          .map((n: string) => n[0])
+                          .join("")
+                          .toUpperCase()
+                          .slice(0, 2) || "U"}
+                      </span>
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
+                        {userDetails.fullName || "N/A"}
+                      </h3>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        User ID: {userDetails.id || userDetails._id || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* User Information Grid */}
+                  <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    {/* Email */}
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                        Email Address
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                        <svg
+                          className="h-5 w-5 text-zinc-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
+                        </svg>
+                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
+                          {userDetails.email || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Mobile */}
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                        Mobile Number
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                        <svg
+                          className="h-5 w-5 text-zinc-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                          />
+                        </svg>
+                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
+                          {userDetails.mobile || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Gender */}
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                        Gender
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                        <span className="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium capitalize bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
+                          {userDetails.gender || "N/A"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Created At */}
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                        Created At
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                        <svg
+                          className="h-5 w-5 text-zinc-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
+                          {formatDateTime(userDetails.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Address */}
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                      Address
+                    </label>
+                    <div className="flex items-start gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                      <svg
+                        className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                      </svg>
+                      <span className="text-sm text-zinc-900 dark:text-zinc-50">
+                        {userDetails.address || "N/A"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Updated At */}
+                  {userDetails.updatedAt && (
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
+                        Last Updated
+                      </label>
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                        <svg
+                          className="h-5 w-5 text-zinc-400"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                          />
+                        </svg>
+                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
+                          {formatDateTime(userDetails.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <svg
+                    className="h-16 w-16 text-zinc-400 dark:text-zinc-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <h3 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    Unable to load user details
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    Please try again later.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 flex justify-end gap-3 border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <button
+                onClick={closeModal}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:outline-blue-500 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
