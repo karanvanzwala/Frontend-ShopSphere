@@ -34,6 +34,9 @@ export default function AdminListPage() {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [favoritedUsers, setFavoritedUsers] = useState<Set<string>>(new Set());
   const [isFavoriting, setIsFavoriting] = useState<string | null>(null);
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const showToast = (
     message: string,
@@ -145,6 +148,138 @@ export default function AdminListPage() {
   const closeModal = () => {
     setIsModalOpen(false);
     setUserDetails(null);
+  };
+
+  const handleFieldChange = (field: keyof UserDetails, value: string) => {
+    setUserDetails((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleUpdateUser = async () => {
+    if (!userDetails || isUpdatingUser) return;
+
+    const id = (userDetails.id || userDetails._id || "") as string;
+    if (!id) {
+      showToast("User id is missing, cannot update.", "error");
+      return;
+    }
+
+    try {
+      setIsUpdatingUser(true);
+
+      const payload = {
+        id,
+        ...userDetails,
+      };
+
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + "admin/edit-user",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to update user");
+      }
+
+      const data = await response.json().catch(() => ({}));
+
+      // Update list with latest data for this user
+      setUsers((prev) =>
+        prev.map((u) =>
+          (u.id || u._id) === id
+            ? {
+                ...u,
+                fullName: (userDetails.fullName as string) || u.fullName,
+                email: (userDetails.email as string) || u.email,
+                mobile: (userDetails.mobile as string) || u.mobile,
+                address: (userDetails.address as string) || u.address,
+                gender: (userDetails.gender as string) || u.gender,
+              }
+            : u
+        )
+      );
+
+      showToast(
+        (data && data.message) || "User details updated successfully!",
+        "success"
+      );
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to update user. Please try again.",
+        "error"
+      );
+      console.error("Error updating user:", error);
+    } finally {
+      setIsUpdatingUser(false);
+      // Close modal and reset details after update attempt
+      setIsModalOpen(false);
+      setUserDetails(null);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userDetails || isDeletingUser) return;
+
+    const id = (userDetails.id || userDetails._id || "") as string;
+    if (!id) {
+      showToast("User id is missing, cannot delete.", "error");
+      return;
+    }
+
+    try {
+      setIsDeletingUser(true);
+
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + `admin/delete-user/${id}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to delete user");
+      }
+
+      const data = await response.json().catch(() => ({}));
+
+      // Remove user from local state
+      setUsers((prev) => prev.filter((u) => (u.id || u._id) !== id));
+
+      // Remove from favorites if present
+      setFavoritedUsers((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
+
+      showToast(
+        (data && data.message) || "User deleted successfully!",
+        "success"
+      );
+
+      // Close modal and reset states
+      setIsModalOpen(false);
+      setUserDetails(null);
+      setShowDeleteConfirm(false);
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete user. Please try again.",
+        "error"
+      );
+      console.error("Error deleting user:", error);
+    } finally {
+      setIsDeletingUser(false);
+    }
   };
 
   const handleFavorite = async (
@@ -648,11 +783,19 @@ export default function AdminListPage() {
                           .slice(0, 2) || "U"}
                       </span>
                     </div>
-                    <div>
-                      <h3 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-                        {userDetails.fullName || "N/A"}
-                      </h3>
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">
+                        Full Name
+                      </label>
+                      <input
+                        type="text"
+                        value={(userDetails.fullName as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("fullName", e.target.value)
+                        }
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      />
+                      <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                         User ID: {userDetails.id || userDetails._id || "N/A"}
                       </p>
                     </div>
@@ -665,7 +808,7 @@ export default function AdminListPage() {
                       <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                         Email Address
                       </label>
-                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800">
                         <svg
                           className="h-5 w-5 text-zinc-400"
                           fill="none"
@@ -679,9 +822,15 @@ export default function AdminListPage() {
                             d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                           />
                         </svg>
-                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
-                          {userDetails.email || "N/A"}
-                        </span>
+                        <input
+                          type="email"
+                          value={(userDetails.email as string) || ""}
+                          onChange={(e) =>
+                            handleFieldChange("email", e.target.value)
+                          }
+                          className="flex-1 bg-transparent text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-zinc-50"
+                          placeholder="Email"
+                        />
                       </div>
                     </div>
 
@@ -690,7 +839,7 @@ export default function AdminListPage() {
                       <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                         Mobile Number
                       </label>
-                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800">
                         <svg
                           className="h-5 w-5 text-zinc-400"
                           fill="none"
@@ -704,9 +853,15 @@ export default function AdminListPage() {
                             d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
                           />
                         </svg>
-                        <span className="text-sm text-zinc-900 dark:text-zinc-50">
-                          {userDetails.mobile || "N/A"}
-                        </span>
+                        <input
+                          type="tel"
+                          value={(userDetails.mobile as string) || ""}
+                          onChange={(e) =>
+                            handleFieldChange("mobile", e.target.value)
+                          }
+                          className="flex-1 bg-transparent text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-zinc-50"
+                          placeholder="Mobile number"
+                        />
                       </div>
                     </div>
 
@@ -715,11 +870,18 @@ export default function AdminListPage() {
                       <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                         Gender
                       </label>
-                      <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
-                        <span className="inline-flex items-center rounded-full px-3 py-1 text-sm font-medium capitalize bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">
-                          {userDetails.gender || "N/A"}
-                        </span>
-                      </div>
+                      <select
+                        value={(userDetails.gender as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("gender", e.target.value)
+                        }
+                        className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                      >
+                        <option value="">Select gender</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                        <option value="other">Other</option>
+                      </select>
                     </div>
 
                     {/* Created At */}
@@ -753,7 +915,7 @@ export default function AdminListPage() {
                     <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
                       Address
                     </label>
-                    <div className="flex items-start gap-2 rounded-lg bg-zinc-50 px-4 py-3 dark:bg-zinc-800">
+                    <div className="flex items-start gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800">
                       <svg
                         className="h-5 w-5 text-zinc-400 shrink-0 mt-0.5"
                         fill="none"
@@ -773,9 +935,15 @@ export default function AdminListPage() {
                           d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
                         />
                       </svg>
-                      <span className="text-sm text-zinc-900 dark:text-zinc-50">
-                        {userDetails.address || "N/A"}
-                      </span>
+                      <textarea
+                        value={(userDetails.address as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("address", e.target.value)
+                        }
+                        rows={3}
+                        className="flex-1 resize-none bg-transparent text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-zinc-50"
+                        placeholder="Address"
+                      />
                     </div>
                   </div>
 
@@ -832,12 +1000,180 @@ export default function AdminListPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="sticky bottom-0 flex justify-end gap-3 border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="sticky bottom-0 flex justify-between items-center gap-3 border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
               <button
-                onClick={closeModal}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:outline-blue-500 transition-colors"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeletingUser || isUpdatingUser}
+                className="inline-flex items-center justify-center rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-700 shadow-sm hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:border-red-700 dark:bg-zinc-900 dark:text-red-400 dark:hover:bg-red-900/20 dark:focus-visible:outline-red-500"
               >
-                Close
+                <svg
+                  className="mr-2 h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+                Delete
+              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={closeModal}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-500 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleUpdateUser}
+                  disabled={isUpdatingUser || isDeletingUser}
+                  className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors ${
+                    isUpdatingUser
+                      ? "bg-blue-400 cursor-not-allowed opacity-80"
+                      : "bg-blue-600 hover:bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:outline-blue-500"
+                  }`}
+                >
+                  {isUpdatingUser && (
+                    <svg
+                      className="mr-2 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                  )}
+                  {isUpdatingUser ? "Updating..." : "Update"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+          onClick={() => setShowDeleteConfirm(false)}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                Confirm Deletion
+              </h2>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                  <svg
+                    className="h-6 w-6"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                    />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50 mb-2">
+                    Are you sure you want to delete this user?
+                  </h3>
+                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-1">
+                    This action cannot be undone. The user{" "}
+                    <span className="font-semibold text-zinc-900 dark:text-zinc-50">
+                      {userDetails?.fullName || "N/A"}
+                    </span>{" "}
+                    will be permanently deleted.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex justify-end gap-3 border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeletingUser}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteUser}
+                disabled={isDeletingUser}
+                className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 transition-colors ${
+                  isDeletingUser
+                    ? "bg-red-400 cursor-not-allowed opacity-80"
+                    : "bg-red-600 hover:bg-red-500 dark:bg-red-500 dark:hover:bg-red-400 dark:focus-visible:outline-red-500"
+                }`}
+              >
+                {isDeletingUser && (
+                  <svg
+                    className="mr-2 h-4 w-4 animate-spin"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                    />
+                  </svg>
+                )}
+                {isDeletingUser ? "Deleting..." : "Delete User"}
               </button>
             </div>
           </div>
