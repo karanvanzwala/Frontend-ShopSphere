@@ -78,7 +78,7 @@ export default function SignupPage() {
       .catch((error) => {
         setIsLoading(false);
         showToast(
-          error.message || "An error occurred. Please try again.",
+          error.message || "An error occurred. Please try again",
           "error"
         );
         console.error("Signup Error:", error);
