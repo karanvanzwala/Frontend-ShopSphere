@@ -56,7 +56,7 @@ export default function SignupPage() {
       .then((res) => {
         if (!res.ok) {
           return res.json().then((data) => {
-            throw new Error(data.message || "Signup failed");
+            throw new Error(data.message || "Signup failed please try again");
           });
         }
         return res.json();
