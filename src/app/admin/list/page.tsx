@@ -159,7 +159,7 @@ export default function AdminListPage() {
 
     const id = (userDetails.id || userDetails._id || "") as string;
     if (!id) {
-      showToast("User id is missing, cannot update.", "");
+      showToast("User id is missing, cannot update.", "error");
       return;
     }
 
