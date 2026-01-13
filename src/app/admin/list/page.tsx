@@ -59,7 +59,10 @@ export default function AdminListPage() {
       try {
         setIsLoading(true);
         const response = await fetch(
-          process.env.NEXT_PUBLIC_API_URL + "admin/list"
+          process.env.NEXT_PUBLIC_API_URL + "admin/list",
+          {
+            credentials: "include",
+          }
         );
 
         if (!response.ok) {

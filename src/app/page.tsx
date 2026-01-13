@@ -40,6 +40,7 @@ export default function LoginPage() {
     fetch(process.env.NEXT_PUBLIC_API_URL + "admin/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email, password, rememberMe }),
     })
       .then((res) => {
@@ -55,6 +56,7 @@ export default function LoginPage() {
         showToast("Login successful! ", "success");
         // handle response, e.g. redirect or show error
         console.log("API response:", data);
+        window.location.href = "/admin/list";
       })
       .catch((error) => {
         setIsLoading(false);
