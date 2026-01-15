@@ -14,6 +14,8 @@ export default function SignupPage() {
   const [mobile, setMobile] = useState("");
   const [address, setAddress] = useState("");
   const [gender, setGender] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -35,9 +37,22 @@ export default function SignupPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // basic required validation for all fields including gender
-    if (!fullName || !email || !mobile || !address || !gender) {
+    // basic required validation for all fields including gender and passwords
+    if (
+      !fullName ||
+      !email ||
+      !mobile ||
+      !address ||
+      !gender ||
+      !password ||
+      !confirmPassword
+    ) {
       showToast("Please fill in all required fields.", "error");
+      return;
+    }
+    // Validate that password and confirmPassword match
+    if (password !== confirmPassword) {
+      showToast("Password and Confirm Password do not match.", "error");
       return;
     }
     setIsLoading(true);
@@ -51,6 +66,7 @@ export default function SignupPage() {
         mobile,
         address,
         gender,
+        password,
       }),
     })
       .then((res) => {
@@ -69,6 +85,8 @@ export default function SignupPage() {
         setMobile("");
         setAddress("");
         setGender("");
+        setPassword("");
+        setConfirmPassword("");
 
         // after success, go back to login after a short delay
         setTimeout(() => {
@@ -308,6 +326,57 @@ export default function SignupPage() {
                   />
                   Other
                 </label>
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Password
+              </label>
+              <div className="mt-2">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-300 placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm"
+                  placeholder="Enter your password"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="confirmPassword"
+                className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              >
+                Confirm Password
+              </label>
+              <div className="mt-2">
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  required
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className={`block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm ${
+                    confirmPassword && password !== confirmPassword
+                      ? "ring-red-300 dark:ring-red-700"
+                      : "ring-zinc-300"
+                  }`}
+                  placeholder="Confirm your password"
+                />
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                    Passwords do not match
+                  </p>
+                )}
               </div>
             </div>
           </div>
