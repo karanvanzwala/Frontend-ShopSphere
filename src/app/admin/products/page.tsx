@@ -21,10 +21,22 @@ interface Product {
   updatedAt?: string;
 }
 
+interface ProductDetails extends Product {
+  [key: string]: string | number | boolean | undefined;
+}
+
 export default function ProductsListPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [productDetails, setProductDetails] = useState<ProductDetails | null>(
+    null
+  );
+  const [isLoadingProduct, setIsLoadingProduct] = useState(false);
+  const [isUpdatingProduct, setIsUpdatingProduct] = useState(false);
+  const [editPhoto, setEditPhoto] = useState<File | null>(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState<string>("");
 
   const showToast = (
     message: string,
@@ -47,7 +59,7 @@ export default function ProductsListPage() {
       try {
         setIsLoading(true);
         const response = await fetch(
-          process.env.NEXT_PUBLIC_API_URL + "admin/products",
+          process.env.NEXT_PUBLIC_API_URL + "admin/getproduct/list",
           {
             credentials: "include",
           }
@@ -90,6 +102,190 @@ export default function ProductsListPage() {
       });
     } catch {
       return "N/A";
+    }
+  };
+
+  const handleEditClick = async (productId: string) => {
+    setIsEditModalOpen(true);
+    setIsLoadingProduct(true);
+    setProductDetails(null);
+    setEditPhoto(null);
+    setEditPhotoPreview("");
+
+    try {
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + `admin/product/${productId}`,
+        {
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch product details");
+      }
+
+      const data = await response.json();
+      const productData = data.productData || data.product || data;
+      setProductDetails(productData);
+      if (productData.photo) {
+        setEditPhotoPreview(productData.photo);
+      }
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to load product details. Please try again.",
+        "error"
+      );
+      console.error("Error fetching product details:", error);
+    } finally {
+      setIsLoadingProduct(false);
+    }
+  };
+
+  const closeEditModal = () => {
+    setIsEditModalOpen(false);
+    setProductDetails(null);
+    setEditPhoto(null);
+    setEditPhotoPreview("");
+  };
+
+  const handleFieldChange = (field: keyof ProductDetails, value: string) => {
+    setProductDetails((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleEditPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const validTypes = ["image/jpeg", "image/jpg", "image/png"];
+      if (!validTypes.includes(file.type)) {
+        showToast(
+          "Please upload a valid image file (JPG, PNG, or JPEG).",
+          "error"
+        );
+        return;
+      }
+
+      const maxSize = 5 * 1024 * 1024;
+      if (file.size > maxSize) {
+        showToast("Image size should be less than 5MB.", "error");
+        return;
+      }
+
+      setEditPhoto(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleUpdateProduct = async () => {
+    if (!productDetails || isUpdatingProduct) return;
+
+    const id = (productDetails.id || productDetails._id || "") as string;
+    if (!id) {
+      showToast("Product id is missing, cannot update.", "error");
+      return;
+    }
+
+    // Validate required fields
+    if (
+      !productDetails.name ||
+      !productDetails.link ||
+      !productDetails.email ||
+      !productDetails.description
+    ) {
+      showToast("Please fill in all required fields.", "error");
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(productDetails.email as string)) {
+      showToast("Please enter a valid email address.", "error");
+      return;
+    }
+
+    // Basic URL validation
+    try {
+      new URL(productDetails.link as string);
+    } catch {
+      showToast("Please enter a valid URL for the link field.", "error");
+      return;
+    }
+
+    try {
+      setIsUpdatingProduct(true);
+
+      const formData = new FormData();
+      formData.append("id", id);
+      formData.append("name", productDetails.name as string);
+      formData.append("link", productDetails.link as string);
+      formData.append("email", productDetails.email as string);
+      formData.append("description", productDetails.description as string);
+
+      if (editPhoto) {
+        formData.append("photo", editPhoto);
+      } else if (productDetails.photo) {
+        // If no new photo, send the existing photo URL
+        formData.append("photo", productDetails.photo as string);
+      }
+
+      const response = await fetch(
+        process.env.NEXT_PUBLIC_API_URL + "admin/edit-product",
+        {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || "Failed to update product");
+      }
+
+      const data = await response.json().catch(() => ({}));
+
+      // Update product in local state
+      setProducts((prev) =>
+        prev.map((p) =>
+          (p.id || p._id) === id
+            ? {
+                ...p,
+                name: (productDetails.name as string) || p.name,
+                link: (productDetails.link as string) || p.link,
+                email: (productDetails.email as string) || p.email,
+                description:
+                  (productDetails.description as string) || p.description,
+                photo:
+                  editPhotoPreview ||
+                  (productDetails.photo as string) ||
+                  p.photo,
+              }
+            : p
+        )
+      );
+
+      showToast(
+        (data && data.message) || "Product updated successfully!",
+        "success"
+      );
+
+      // Close modal and reset states
+      closeEditModal();
+    } catch (error) {
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to update product. Please try again.",
+        "error"
+      );
+      console.error("Error updating product:", error);
+    } finally {
+      setIsUpdatingProduct(false);
     }
   };
 
@@ -368,10 +564,11 @@ export default function ProductsListPage() {
                         {formatDate(product.createdAt)}
                       </td>
                       <td className="whitespace-nowrap px-6 py-4 text-center">
-                        <Link
-                          href={`/admin/products/edit/${
-                            product.id || product._id || ""
-                          }`}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditClick(product.id || product._id || "");
+                          }}
                           className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:outline-blue-500 transition-colors"
                         >
                           <svg
@@ -388,7 +585,7 @@ export default function ProductsListPage() {
                             />
                           </svg>
                           Edit
-                        </Link>
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -406,6 +603,258 @@ export default function ProductsListPage() {
           </div>
         )}
       </div>
+
+      {/* Edit Product Modal */}
+      {isEditModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm overflow-y-auto py-8"
+          onClick={closeEditModal}
+        >
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-zinc-900 my-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="sticky top-0 flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900 z-10">
+              <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
+                Edit Product
+              </h2>
+              <button
+                onClick={closeEditModal}
+                className="rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition-colors"
+              >
+                <svg
+                  className="h-5 w-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              {isLoadingProduct ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="flex flex-col items-center gap-4">
+                    <svg
+                      className="animate-spin h-8 w-8 text-blue-600 dark:text-blue-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                      Loading product details...
+                    </p>
+                  </div>
+                </div>
+              ) : productDetails ? (
+                <form className="space-y-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label
+                        htmlFor="edit-name"
+                        className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
+                      >
+                        Product Name
+                      </label>
+                      <input
+                        id="edit-name"
+                        type="text"
+                        required
+                        value={(productDetails.name as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("name", e.target.value)
+                        }
+                        className="block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-300 placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm"
+                        placeholder="Enter product name"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="edit-link"
+                        className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
+                      >
+                        Product Link
+                      </label>
+                      <input
+                        id="edit-link"
+                        type="url"
+                        required
+                        value={(productDetails.link as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("link", e.target.value)
+                        }
+                        className="block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-300 placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm"
+                        placeholder="https://example.com/product"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="edit-email"
+                        className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
+                      >
+                        Email
+                      </label>
+                      <input
+                        id="edit-email"
+                        type="email"
+                        required
+                        value={(productDetails.email as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("email", e.target.value)
+                        }
+                        className="block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-300 placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm"
+                        placeholder="you@example.com"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="edit-photo"
+                        className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
+                      >
+                        Product Photo
+                      </label>
+                      <input
+                        id="edit-photo"
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png"
+                        onChange={handleEditPhotoChange}
+                        className="block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-blue-900/30 dark:file:text-blue-300 dark:hover:file:bg-blue-900/50 file:cursor-pointer cursor-pointer rounded-lg border-0 px-4 py-3 shadow-sm ring-1 ring-inset ring-zinc-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:ring-zinc-700 dark:focus:ring-blue-500"
+                      />
+                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Accepted formats: JPG, PNG, JPEG (Max 5MB). Leave empty
+                        to keep current photo.
+                      </p>
+                      {editPhotoPreview && (
+                        <div className="mt-3">
+                          <img
+                            src={`http://localhost:3001/${editPhotoPreview.replace(
+                              /^\/+/,
+                              ""
+                            )}`}
+                            alt="Product preview"
+                            className="h-32 w-32 rounded-lg object-cover border border-zinc-300 dark:border-zinc-700"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="edit-description"
+                        className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2"
+                      >
+                        Description
+                      </label>
+                      <textarea
+                        id="edit-description"
+                        rows={4}
+                        required
+                        value={(productDetails.description as string) || ""}
+                        onChange={(e) =>
+                          handleFieldChange("description", e.target.value)
+                        }
+                        className="block w-full rounded-lg border-0 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-300 placeholder:text-zinc-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 dark:bg-zinc-800 dark:text-zinc-50 dark:ring-zinc-700 dark:placeholder:text-zinc-500 dark:focus:ring-blue-500 sm:text-sm"
+                        placeholder="Enter product description"
+                      />
+                    </div>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <svg
+                    className="h-16 w-16 text-zinc-400 dark:text-zinc-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <h3 className="mt-4 text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                    Unable to load product details
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+                    Please try again later.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            {productDetails && (
+              <div className="sticky bottom-0 flex justify-end gap-3 border-t border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900 z-10">
+                <button
+                  onClick={closeEditModal}
+                  className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-semibold text-zinc-700 shadow-sm hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus-visible:outline-zinc-500 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleUpdateProduct}
+                  disabled={isUpdatingProduct}
+                  className={`inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors ${
+                    isUpdatingProduct
+                      ? "bg-blue-400 cursor-not-allowed opacity-80"
+                      : "bg-blue-600 hover:bg-blue-500 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus-visible:outline-blue-500"
+                  }`}
+                >
+                  {isUpdatingProduct && (
+                    <svg
+                      className="mr-2 h-4 w-4 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                  )}
+                  {isUpdatingProduct ? "Updating..." : "Update Product"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
